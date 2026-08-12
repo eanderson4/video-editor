@@ -20,8 +20,15 @@ decide before you touch ffmpeg, and in what order.
    models for adversarial feedback before rendering:
    `claude -p "$(cat brief.md)"`, `codex exec "$(cat brief.md)"`,
    `research ask -p "$(cat brief.md)"`. Keep responses in `feedback/`.
-   Convergent criticism (two or more models flag the same beat) is signal;
-   lone opinions are taste.
+   **LLM review is for facts, attack surface, and blind spots — never for
+   voice.** Keep their defensibility catches (a number that invites
+   comment-section attack, an apples-to-oranges comparison); treat
+   structure notes as options; treat tone rewrites as noise. Convergent
+   criticism (two or more models flag the same beat) is signal about
+   clarity, but convergence on the same rewrite is one median opinion,
+   not three — LLMs regress delivery toward announcer-speak and sand off
+   the texture (escalations, rambles, confessions) that makes the host
+   the host. The host's read of their own lines wins ties.
 4. **VO / pickups.** If the spec needs lines the footage doesn't say,
    record them now — after review, before build. A phone recording works;
    drop it in the build dir, transcribe word-level
