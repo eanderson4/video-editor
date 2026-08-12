@@ -67,13 +67,31 @@ On screen: <card / captions / overlay, with any numbers + their source>
 
 ## Editorial rules (hard-won)
 
+Practitioner-validated set: `.research/yt-narrative-style/PRINCIPLES.md`
+in math-vs-vibes (12 sources, tagged [STRUCTURE]/[VOICE]/[HOOK]/[DATA]).
+
 - Numbers are the punchlines (canon). A damage montage without the goal
   metric is spectacle; the metric without the real-world number is
   abstract. You need both, fast.
-- End on the gap or the lesson, not on the apology. "I didn't hit it" is
-  a beat, not a close.
-- One idea per beat; beats are 10-20s. If a beat needs a second idea,
-  it's two beats.
+- The first frame+line is the packaging gate (viewed-vs-swiped, >=70% is
+  good); obsess over second one, not over the close. Open with the most
+  chaotic moment, then backfill. A gap/misconception hook ("reality has
+  ~40k cars here at 8AM; the sim died at 6,500") beats a topic label.
+- Escalation beats ("gridlock, total gridlock, collisions") ARE the
+  information — cutting discipline targets preamble and transitions, not
+  repetition-for-stakes.
+- Setbacks are the retention device. "I didn't hit it" is the payoff,
+  not a problem to script around. End on meaning, and consider looping
+  back to the unmet goal — replays push AVD past 100%.
+- Re-hook every ~15-20s inside a 52s short; beats are 10-20s, one idea
+  each. 50-60s is fine when it holds (Galloway's dataset: ~4.1M avg
+  views vs 1.8M for 40-50s) — never trim a working story for length
+  ideology.
+- Writing is where the voice lives: LLM feedback may restructure and
+  fact-check, but final spoken lines are the host's phrasing. Before
+  shipping, audit for AI tells (rule-of-three slogans, "not just X,
+  it's Y" cadence symmetry, mirrored closes) — three reviewers
+  converging on the same punchy close is itself the tell.
 - VO beats the footage can't supply belong over screen visuals or a
   stats card, never over a static webcam shot.
 - Canon: no em dashes on screen, no filler sincerity words, estimates
