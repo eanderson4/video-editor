@@ -16,6 +16,8 @@ from vidkit import brand, ff, draw, captions, facetrack, loudness, shorts
 
 Cross-episode pipeline lessons: `PLAYBOOK.md` (read it before any episode
 render — alignment, layout, hooks, loudness, verification).
+Editorial pipeline (research -> narrative spec -> review -> VO -> build ->
+verify -> publish, with a spec template): `docs/narrative.md`.
 
 ## Modules
 
