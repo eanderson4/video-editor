@@ -1,0 +1,19 @@
+{
+  "name": "math-vs-vibes",
+  "comment": "Canonical values measured from the EP-02 designer frames (make-overlays.py header). Historical drift note: some one-off scripts used #2E5BFF / #111317.",
+  "palette": {
+    "MATH_BLUE": [46, 90, 255],
+    "VIBES_ORANGE": [255, 98, 48],
+    "LAVENDER": [231, 236, 253],
+    "PEACH": [253, 236, 222],
+    "INK": [17, 19, 23],
+    "CHIP_DARK": [17, 19, 23],
+    "WHITE": [255, 255, 255]
+  },
+  "sheet": { "w": 3840, "h": 2160 },
+  "wordmark": {
+    "MATH_BOX": [1320, 1861, 1803, 1995],
+    "CHIP_BOX": [1857, 1877, 1973, 1961],
+    "VIBES_BOX": [2027, 1861, 2519, 1995]
+  }
+}
