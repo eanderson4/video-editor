@@ -22,7 +22,8 @@ Arial clone; no Black weight, Bold covers both heavy and bold roles).
 import json
 import os
 
-REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), os.pardir))
+REPO = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), os.pardir))
 SYSTEMS_DIR = os.path.join(REPO, "systems")
 
 _MAC_ARIAL_BLACK = "/System/Library/Fonts/Supplemental/Arial Black.ttf"
