@@ -40,6 +40,45 @@ def load_words(whisper_dir, tracks, fixes=None, subs=()):
     return words
 
 
+def load_words_from_srt(path, speaker, offset=0.0, subs=()):
+    """Word list [(session_start, session_end, token, speaker)] from an SRT
+    (e.g. Riverside's <name>.srt or a whisper -osrt slice of a -CFR track).
+
+    SRT cues have no word timing, so words are interpolated linearly across
+    their cue — keep cues short (whisper slices, not paragraph SRTs) or
+    captions will smear within a cue. offset shifts cue times into session
+    time (slice start). Word-level `fixes` are impractical here (timings are
+    synthetic); use subs for token corrections."""
+    import re
+    words = []
+    with open(path) as f:
+        text = f.read()
+    for block in re.split(r"\n\s*\n", text.strip()):
+        lines = block.strip().splitlines()
+        if len(lines) < 2:
+            continue
+        tl = next((l for l in lines if "-->" in l), None)
+        if tl is None:
+            continue
+        a, b = [_hms(t) for t in re.split(r"\s*-->\s*", tl.strip())[:2]]
+        toks = " ".join(l for l in lines[lines.index(tl) + 1:]).split()
+        n = len(toks)
+        for i, t in enumerate(toks):
+            for x, y in subs:
+                t = t.replace(x, y)
+            if not t:
+                continue
+            words.append((offset + a + (b - a) * i / n,
+                          offset + a + (b - a) * (i + 1) / n, t, speaker))
+    words.sort()
+    return words
+
+
+def _hms(t):
+    h, m, rest = t.replace(",", ".").split(":")
+    return int(h) * 3600 + int(m) * 60 + float(rest)
+
+
 def chunk_words(ws, max_words=4, max_gap=0.8):
     """Group [(start, end, token)] into caption chunks: break on sentence
     punctuation, max_words, or a speech gap > max_gap seconds.

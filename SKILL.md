@@ -37,7 +37,9 @@ render — alignment, layout, hooks, loudness, verification).
   the 4K designer-sheet system (`make_bg/punch/wordmark/banner/save2x`),
   thumbnail cards/cameos/stroked text.
 - `captions` — `load_words(whisper_dir, [(stem, session_offset)], fixes, subs)`
-  + `chunk_words`. Whisper JSONs carry fixed offsets back to session time;
+  + `load_words_from_srt(srt, speaker, offset, subs)` (Riverside/whisper
+  `-osrt` cues; keep cues short, timings are interpolated) + `chunk_words`.
+  Whisper JSONs carry fixed offsets back to session time;
   word fixes are keyed `(speaker, round(session_start, 2))`.
 - `facetrack` — warm-tone centroid head tracker (`track_head_x`) +
   `knots_to_expr`/`crop_x_expr` for follow-cam crops. **Never eyeball a

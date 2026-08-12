@@ -108,6 +108,8 @@ BANNER_ART = {
     "MATH": ("bg-math.jpg", brand.LAVENDER, 0.55, "top"),
     "VIBES": ("bg-vibes.jpg", brand.PEACH, 0.85, "center"),
 }
+# chips without their own art (e.g. a "THE SIM" screen chip) get this
+_DEFAULT_ART = ("bg-vibes.jpg", brand.PEACH, 0.85, "center")
 
 
 def render_band(color, label, path, w=1080, h=110, strip=10):
@@ -115,7 +117,7 @@ def render_band(color, label, path, w=1080, h=110, strip=10):
     (BANNER_ART, drawn 2x for AA) with a speaker-colored strip along the
     bottom edge (the divider against the video). The speaker chip is
     overlaid separately, centered in the band. Returns (w, h)."""
-    art, flat, opacity, anchor = BANNER_ART[label]
+    art, flat, opacity, anchor = BANNER_ART.get(label, _DEFAULT_ART)
     ss = 2
     img = make_bg(os.path.join(brand.ASSETS, art), flat, opacity, anchor,
                   size=(w * ss, h * ss))
