@@ -6,7 +6,7 @@ episode cuts, vertical shorts, branded overlays, thumbnails, loudness.
 - `SKILL.md` — module rules + usage entry points (start here)
 - `PLAYBOOK.md` — cross-episode pipeline lessons (alignment, layout, hooks,
   loudness, verification)
-- `vidkit/` — the library (brand / ff / draw / captions / facetrack / loudness / shorts)
+- `vidkit/` — the library (brand / ff / draw / captions / facetrack / loudness / shorts / simcapture)
 - `systems/` — brand/design systems, same protocol as design-page-bot:
   `systems/<name>/brand.json` (palette, sheet/wordmark geometry) +
   optional `assets/` and `fonts/`. Drop in a directory to register a

@@ -54,6 +54,15 @@ verify -> publish, with a spec template): `docs/narrative.md`.
 - `shorts` — `ShortsBuilder` segmented two-pass vertical shorts engine
   (1080x1920 speaker-cut shorts from session-aligned horizontal tracks,
   PIL caption/chip/hook overlays).
+- `simcapture` — MP4 B-roll of a traffic-sim baked replay: headless
+  Chrome over CDP (node ≥22, no npm deps; core is `simcapture.mjs`,
+  `simcapture.capture()` wraps it), wall-clock screenshot loop assembled
+  as true real-time CFR via concat-demuxer per-frame durations. Uses the
+  viz's `?bare=1` for clean footage; `--start-tick` seeks via the hidden
+  replay slider. Deep-link `?center=&zoom=13+` (vehicle render gate) and
+  serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
+  `--gpu` drops swiftshader for hardware GL (~4× faster capture). CLI:
+  `python3 ~/grove/video-editor/vidkit/simcapture.py --url ... --out clip.mp4`.
 
 ## Usage entry points (in ~/grove/math-vs-vibes)
 
