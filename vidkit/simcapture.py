@@ -24,8 +24,8 @@ _MJS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simcapture.mjs"
 
 
 def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
-            speed=None, camera=None, fps=30, crf=18, settle=1.5, fmt="png",
-            keep_frames=False, gpu=False, timeout=120):
+            speed=None, camera=None, min_vehicle_zoom=None, fps=30, crf=18,
+            settle=1.5, fmt="png", keep_frames=False, gpu=False, timeout=120):
     """Capture `duration` seconds of the replay at `url` into mp4 `out`.
 
     camera: drone keyframes — a JSON file path, or a list of dicts
@@ -43,6 +43,8 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
     if camera is not None:
         cmd += ["--camera",
                 camera if isinstance(camera, str) else json.dumps(camera)]
+    if min_vehicle_zoom is not None:
+        cmd += ["--min-vehicle-zoom", str(min_vehicle_zoom)]
     if keep_frames:
         cmd.append("--keep-frames")
     if gpu:

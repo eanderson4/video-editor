@@ -63,8 +63,10 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   reads as motion at street zooms); `--camera keyframes.json` flies the
   maplibre camera like a drone while recording ([{at, duration, center,
   zoom, bearing, pitch, ease}] on `window.__viz.map`, don't overlap
-  eases). Deep-link `?center=&zoom=13+` (vehicle render gate) and
-  serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
+  eases). Deep-link `?center=&zoom=13+` (vehicle render gate) or pass
+  `--min-vehicle-zoom N` to defeat the gate for zoomed-out shots (icons
+  hold ~4px down to zoom 11; whole-network = ~5-6k vehicles streaming).
+  Serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
   `--gpu` drops swiftshader for hardware GL (~4× faster capture). CLI:
   `python3 ~/grove/video-editor/vidkit/simcapture.py --url ... --out clip.mp4`.
 

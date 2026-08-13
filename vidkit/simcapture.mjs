@@ -48,6 +48,7 @@ function parseArgs(argv) {
     startTick: null,
     speed: null,
     camera: null,
+    minVehicleZoom: null,
     fps: 30,
     crf: 18,
     settle: 1.5,
@@ -66,6 +67,7 @@ function parseArgs(argv) {
     else if (k === "--start-tick") a.startTick = Number(next());
     else if (k === "--speed") a.speed = Number(next());
     else if (k === "--camera") a.camera = next();
+    else if (k === "--min-vehicle-zoom") a.minVehicleZoom = Number(next());
     else if (k === "--fps") a.fps = Number(next());
     else if (k === "--crf") a.crf = Number(next());
     else if (k === "--settle") a.settle = Number(next());
@@ -147,7 +149,7 @@ const url = new URL(args.url);
 if (!url.searchParams.has("bare")) url.searchParams.set("bare", "1");
 if (url.searchParams.has("bake")) {
   const zoom = Number(url.searchParams.get("zoom") ?? "NaN");
-  if (!url.searchParams.has("center") || !(zoom >= 13)) {
+  if (!url.searchParams.has("center") || !(zoom >= (args.minVehicleZoom ?? 13))) {
     console.warn(
       "[warn] baked vehicles only render at zoom >= 13 " +
         "(BAKED_VEHICLE_GATE_ZOOM) — deep-link ?center=lng,lat&zoom=13+ " +
@@ -262,6 +264,22 @@ try {
     return h.tick !== null && h.tick > 0 ? h : null;
   });
   console.log(`[live] ${(await hud()).text.split("\n")[1]}`);
+
+  if (args.minVehicleZoom !== null) {
+    // Defeat the zoom-13 vehicle gate (a perf guard, not a correctness
+    // rule) for zoomed-out shots, via public API only: the data gate
+    // (main.ts reportViewport -> bakedSub.setViewport) reads map.getZoom(),
+    // so clamp it; the style gate is layer minzoom, so widen the range.
+    // Below ~zoom 12 all ~5-6k vehicles stream — expect a slower capture.
+    const res = await evaluate(
+      "(() => { const m = window.__viz?.map; if (!m) return 'no-map';" +
+        " const real = m.getZoom.bind(m); m.getZoom = () => Math.max(real(), 13.01);" +
+        ` for (const id of ['vehicles', 'trailers']) if (m.getLayer(id)) m.setLayerZoomRange(id, ${args.minVehicleZoom}, 24);` +
+        " m.fire('moveend'); return 'ok'; })()",
+    );
+    if (res !== "ok") throw new Error(`--min-vehicle-zoom: ${res}`);
+    console.log(`[gate] vehicle layers now render from zoom ${args.minVehicleZoom}`);
+  }
 
   if (args.startTick !== null || args.speed !== null) {
     // The replay panel (slider max = endTick, value in ticks; speed
