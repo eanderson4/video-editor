@@ -24,13 +24,19 @@ _MJS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simcapture.mjs"
 
 
 def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
-            speed=None, camera=None, min_vehicle_zoom=None, fps=30, crf=18,
-            settle=1.5, fmt="png", keep_frames=False, gpu=False, timeout=120):
+            speed=None, camera=None, retime=None, min_vehicle_zoom=None,
+            fps=30, crf=18, settle=1.5, fmt="png", keep_frames=False,
+            gpu=False, timeout=120):
     """Capture `duration` seconds of the replay at `url` into mp4 `out`.
 
     camera: drone keyframes — a JSON file path, or a list of dicts
     [{at, duration, center?, zoom?, bearing?, pitch?, ease?}, ...]
     (seconds from record start), applied to the viz's maplibre map.
+
+    retime: smoothness — capture N× longer wall-clock, compress ÷N on
+    encode (screenshot rate caps unique frames; retime multiplies it).
+    Pair with a replay speed N× slower than the wanted motion; effective
+    sim speed = speed × retime. Camera keyframes stay in output seconds.
     """
     cmd = ["node", _MJS, "--url", url, "--out", out,
            "--duration", str(duration), "--size", f"{size[0]}x{size[1]}",
@@ -43,6 +49,8 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
     if camera is not None:
         cmd += ["--camera",
                 camera if isinstance(camera, str) else json.dumps(camera)]
+    if retime is not None:
+        cmd += ["--retime", str(retime)]
     if min_vehicle_zoom is not None:
         cmd += ["--min-vehicle-zoom", str(min_vehicle_zoom)]
     if keep_frames:

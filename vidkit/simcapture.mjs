@@ -24,6 +24,13 @@
 //     [--camera path.json | '[{...}]'] — drone keyframes: [{at, duration,
 //       center?, zoom?, bearing?, pitch?, ease?: "ease"|"fly"|"jump"}, ...]
 //       (seconds from record start; fired on window.__viz.map)
+//     [--retime N] — smoothness: capture N× longer wall-clock, then compress
+//       timestamps ÷N on encode. Screenshot rate caps unique frames (~7 fps
+//       even with --gpu at heavy vehicle loads), so a straight capture plays
+//       choppy; retime multiplies the unique-frame rate by N. Pair with a
+//       replay --speed N× SLOWER than the motion you want (effective sim
+//       speed in the output = speed × retime). Camera keyframes stay
+//       authored in OUTPUT seconds — at/duration are scaled internally.
 //     [--crf 18] [--settle 1.5] [--format png|jpeg] [--keep-frames] [--gpu]
 //
 // Requires: chrome/chromium (env CHROME overrides), ffmpeg (resolution
@@ -48,6 +55,7 @@ function parseArgs(argv) {
     startTick: null,
     speed: null,
     camera: null,
+    retime: 1,
     minVehicleZoom: null,
     fps: 30,
     crf: 18,
@@ -67,6 +75,7 @@ function parseArgs(argv) {
     else if (k === "--start-tick") a.startTick = Number(next());
     else if (k === "--speed") a.speed = Number(next());
     else if (k === "--camera") a.camera = next();
+    else if (k === "--retime") a.retime = Number(next());
     else if (k === "--min-vehicle-zoom") a.minVehicleZoom = Number(next());
     else if (k === "--fps") a.fps = Number(next());
     else if (k === "--crf") a.crf = Number(next());
@@ -93,6 +102,7 @@ function parseArgs(argv) {
   if (a.format !== "png" && a.format !== "jpeg") throw new Error("--format must be png|jpeg");
   if (a.speed !== null && ![1, 2, 4, 8].includes(a.speed))
     throw new Error("--speed must be one of 1|2|4|8 (replaypanel SPEEDS)");
+  if (!(a.retime >= 1)) throw new Error("--retime must be >= 1");
   if (a.camera !== null) {
     const src = a.camera.trim().startsWith("[") ? a.camera : readFileSync(a.camera, "utf8");
     a.moves = JSON.parse(src);
@@ -327,9 +337,17 @@ try {
   const stamps = [];
   const ext = args.format === "png" ? "png" : "jpg";
   let moveIdx = 0;
+  // --retime N: record N× longer wall-clock; timestamps compress ÷N at
+  // encode. Camera at/duration (authored in output seconds) scale ×N here
+  // so the eases land at the same output moments, just sampled N× denser.
+  const wallMs = args.duration * args.retime * 1000;
   const t0 = Date.now();
-  console.log(`[rec] ${args.duration}s @ ${args.width}x${args.height} (${args.format}) …`);
-  while (Date.now() - t0 < args.duration * 1000) {
+  console.log(
+    `[rec] ${args.duration}s @ ${args.width}x${args.height} (${args.format})` +
+      (args.retime > 1 ? ` — retime ${args.retime}x (${args.duration * args.retime}s wall)` : "") +
+      " …",
+  );
+  while (Date.now() - t0 < wallMs) {
     const t = Date.now() - t0;
     // Drone camera: keyframes fire as maplibre eases on the map handle the
     // viz exposes for headless harnesses (main.ts window.__viz). Eases run
@@ -337,12 +355,12 @@ try {
     // Keyframe: {at, duration, center?, zoom?, bearing?, pitch?, ease?}
     // (seconds; ease: "ease" default | "fly" | "jump"). Don't overlap
     // moves — a new ease interrupts the running one.
-    while (moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0)) {
+    while (moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0) * args.retime) {
       const m = args.moves[moveIdx++];
       const fn = m.ease === "jump" ? "jumpTo" : m.ease === "fly" ? "flyTo" : "easeTo";
       const opts = {};
       for (const k of ["center", "zoom", "bearing", "pitch"]) if (m[k] !== undefined) opts[k] = m[k];
-      if (fn !== "jumpTo") opts.duration = (m.duration ?? 2) * 1000;
+      if (fn !== "jumpTo") opts.duration = (m.duration ?? 2) * 1000 * args.retime;
       // Wrapped: map methods return the Map itself, which returnByValue
       // cannot serialize ("Object reference chain is too long").
       await evaluate(`(() => { window.__viz.map.${fn}(${JSON.stringify(opts)}); return "ok"; })()`);
@@ -361,9 +379,10 @@ try {
   chrome.kill("SIGKILL");
 
   if (stamps.length < 2) throw new Error(`only ${stamps.length} frame(s) captured — nothing to encode`);
-  const capFps = (stamps.length / args.duration).toFixed(1);
+  const capFps = (stamps.length / (args.duration * args.retime)).toFixed(1);
+  const outFps = (stamps.length / args.duration).toFixed(1);
   console.log(
-    `[rec] ${stamps.length} frames in ${args.duration}s (~${capFps} fps captured), ` +
+    `[rec] ${stamps.length} frames (~${capFps} fps captured -> ~${outFps} unique fps in output), ` +
       `HUD tick ${startHud.tick} -> ${endHud.tick}, vehicles ${startHud.vehicles} -> ${endHud.vehicles}`,
   );
   if (endHud.tick !== null && startHud.tick !== null && endHud.tick <= startHud.tick) {
@@ -377,8 +396,8 @@ try {
   for (let i = 0; i < stamps.length; i++) {
     const dur =
       i + 1 < stamps.length
-        ? (stamps[i + 1].t - stamps[i].t) / 1000
-        : Math.max(1 / args.fps, args.duration - stamps[i].t / 1000);
+        ? (stamps[i + 1].t - stamps[i].t) / 1000 / args.retime
+        : Math.max(1 / args.fps, args.duration - stamps[i].t / 1000 / args.retime);
     lines.push(`file ${stamps[i].name}`, `duration ${dur.toFixed(4)}`);
   }
   lines.push(`file ${stamps[stamps.length - 1].name}`);

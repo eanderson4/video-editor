@@ -63,7 +63,12 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   reads as motion at street zooms); `--camera keyframes.json` flies the
   maplibre camera like a drone while recording ([{at, duration, center,
   zoom, bearing, pitch, ease}] on `window.__viz.map`, don't overlap
-  eases). Deep-link `?center=&zoom=13+` (vehicle render gate) or pass
+  eases). Screenshot rate caps unique frames (~7 fps even with --gpu at
+  heavy loads → choppy playback): use `--retime N` — capture N× longer
+  at an N×-slower replay speed, compressed ÷N on encode (same motion,
+  N× the unique fps; camera keyframes stay in output seconds; effective
+  sim speed = speed × retime). Deep-link `?center=&zoom=13+`
+  (vehicle render gate) or pass
   `--min-vehicle-zoom N` to defeat the gate for zoomed-out shots (icons
   hold ~4px down to zoom 11; whole-network = ~5-6k vehicles streaming).
   Serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
