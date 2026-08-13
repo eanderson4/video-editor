@@ -20,8 +20,8 @@
 //
 // Usage:
 //   node simcapture.mjs --url <replay-url> --out clip.mp4
-//     [--duration 10] [--size 1080x1920] [--start-tick N] [--fps 30]
-//     [--crf 18] [--settle 1.5] [--format png|jpeg] [--keep-frames]
+//     [--duration 10] [--size 1080x1920] [--start-tick N] [--speed 1|2|4|8]
+//     [--crf 18] [--settle 1.5] [--format png|jpeg] [--keep-frames] [--gpu]
 //
 // Requires: chrome/chromium (env CHROME overrides), ffmpeg (resolution
 // mirrors ff.py: VIDKIT_FFMPEG env -> homebrew ffmpeg@7 -> PATH), and
@@ -43,6 +43,7 @@ function parseArgs(argv) {
     duration: 10,
     size: "1080x1920",
     startTick: null,
+    speed: null,
     fps: 30,
     crf: 18,
     settle: 1.5,
@@ -59,6 +60,7 @@ function parseArgs(argv) {
     else if (k === "--duration") a.duration = Number(next());
     else if (k === "--size") a.size = next();
     else if (k === "--start-tick") a.startTick = Number(next());
+    else if (k === "--speed") a.speed = Number(next());
     else if (k === "--fps") a.fps = Number(next());
     else if (k === "--crf") a.crf = Number(next());
     else if (k === "--settle") a.settle = Number(next());
@@ -82,6 +84,8 @@ function parseArgs(argv) {
   a.height = Number(m[2]);
   if (a.width % 2 || a.height % 2) throw new Error("--size must be even (yuv420p)");
   if (a.format !== "png" && a.format !== "jpeg") throw new Error("--format must be png|jpeg");
+  if (a.speed !== null && ![1, 2, 4, 8].includes(a.speed))
+    throw new Error("--speed must be one of 1|2|4|8 (replaypanel SPEEDS)");
   return a;
 }
 
@@ -242,16 +246,27 @@ try {
   });
   console.log(`[live] ${(await hud()).text.split("\n")[1]}`);
 
-  if (args.startTick !== null) {
-    // Baked-mode seek: the replay panel's slider (max = endTick, value in
-    // ticks) POSTs the seek to the bake shim's in-page fetch stub on
-    // "change". The panel builds after its first 1 s status poll.
+  if (args.startTick !== null || args.speed !== null) {
+    // The replay panel (slider max = endTick, value in ticks; speed
+    // buttons "1×".."8×") POSTs its controls to the bake shim's in-page
+    // fetch stub. The panel builds after its first 1 s status poll.
     await waitFor("replay panel slider", 30_000, () =>
       evaluate(
         "(() => { const s = document.querySelector('#replay input[type=range]');" +
           " return !!s && Number(s.max) > 0 && !s.disabled; })()",
       ),
     );
+  }
+  if (args.speed !== null) {
+    const res = await evaluate(
+      "(() => { const b = [...document.querySelectorAll('#replay .rp-speed')]" +
+        `.find((x) => x.textContent === '${args.speed}\\u00d7');` +
+        " if (!b) return 'no-button'; b.click(); return 'ok'; })()",
+    );
+    if (res !== "ok") throw new Error(`speed ${args.speed}x: ${res}`);
+    console.log(`[speed] ${args.speed}x`);
+  }
+  if (args.startTick !== null) {
     const res = await evaluate(
       "(() => { const s = document.querySelector('#replay input[type=range]');" +
         ` s.value = String(${args.startTick}); s.dispatchEvent(new Event('change')); return s.max; })()`,

@@ -23,8 +23,8 @@ _MJS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simcapture.mjs"
 
 
 def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
-            fps=30, crf=18, settle=1.5, fmt="png", keep_frames=False,
-            timeout=120):
+            speed=None, fps=30, crf=18, settle=1.5, fmt="png",
+            keep_frames=False, gpu=False, timeout=120):
     """Capture `duration` seconds of the replay at `url` into mp4 `out`."""
     cmd = ["node", _MJS, "--url", url, "--out", out,
            "--duration", str(duration), "--size", f"{size[0]}x{size[1]}",
@@ -32,8 +32,12 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
            "--format", fmt, "--timeout", str(timeout)]
     if start_tick is not None:
         cmd += ["--start-tick", str(int(start_tick))]
+    if speed is not None:
+        cmd += ["--speed", str(int(speed))]
     if keep_frames:
         cmd.append("--keep-frames")
+    if gpu:
+        cmd.append("--gpu")
     subprocess.run(cmd, check=True)
     return out
 
