@@ -15,6 +15,7 @@ CLI (args forwarded to the .mjs verbatim):
     python3 vidkit/simcapture.py --url <replay-url> --out clip.mp4 \
         [--duration 10] [--size 1080x1920] [--start-tick 3000] ...
 """
+import json
 import os
 import subprocess
 import sys
@@ -23,9 +24,14 @@ _MJS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simcapture.mjs"
 
 
 def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
-            speed=None, fps=30, crf=18, settle=1.5, fmt="png",
+            speed=None, camera=None, fps=30, crf=18, settle=1.5, fmt="png",
             keep_frames=False, gpu=False, timeout=120):
-    """Capture `duration` seconds of the replay at `url` into mp4 `out`."""
+    """Capture `duration` seconds of the replay at `url` into mp4 `out`.
+
+    camera: drone keyframes — a JSON file path, or a list of dicts
+    [{at, duration, center?, zoom?, bearing?, pitch?, ease?}, ...]
+    (seconds from record start), applied to the viz's maplibre map.
+    """
     cmd = ["node", _MJS, "--url", url, "--out", out,
            "--duration", str(duration), "--size", f"{size[0]}x{size[1]}",
            "--fps", str(fps), "--crf", str(crf), "--settle", str(settle),
@@ -34,6 +40,9 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
         cmd += ["--start-tick", str(int(start_tick))]
     if speed is not None:
         cmd += ["--speed", str(int(speed))]
+    if camera is not None:
+        cmd += ["--camera",
+                camera if isinstance(camera, str) else json.dumps(camera)]
     if keep_frames:
         cmd.append("--keep-frames")
     if gpu:

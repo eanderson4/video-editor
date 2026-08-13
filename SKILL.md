@@ -59,7 +59,11 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   `simcapture.capture()` wraps it), wall-clock screenshot loop assembled
   as true real-time CFR via concat-demuxer per-frame durations. Uses the
   viz's `?bare=1` for clean footage; `--start-tick` seeks via the hidden
-  replay slider. Deep-link `?center=&zoom=13+` (vehicle render gate) and
+  replay slider; `--speed 2|4|8` clicks the panel's speed buttons (4×
+  reads as motion at street zooms); `--camera keyframes.json` flies the
+  maplibre camera like a drone while recording ([{at, duration, center,
+  zoom, bearing, pitch, ease}] on `window.__viz.map`, don't overlap
+  eases). Deep-link `?center=&zoom=13+` (vehicle render gate) and
   serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
   `--gpu` drops swiftshader for hardware GL (~4× faster capture). CLI:
   `python3 ~/grove/video-editor/vidkit/simcapture.py --url ... --out clip.mp4`.

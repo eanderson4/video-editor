@@ -21,6 +21,9 @@
 // Usage:
 //   node simcapture.mjs --url <replay-url> --out clip.mp4
 //     [--duration 10] [--size 1080x1920] [--start-tick N] [--speed 1|2|4|8]
+//     [--camera path.json | '[{...}]'] — drone keyframes: [{at, duration,
+//       center?, zoom?, bearing?, pitch?, ease?: "ease"|"fly"|"jump"}, ...]
+//       (seconds from record start; fired on window.__viz.map)
 //     [--crf 18] [--settle 1.5] [--format png|jpeg] [--keep-frames] [--gpu]
 //
 // Requires: chrome/chromium (env CHROME overrides), ffmpeg (resolution
@@ -44,6 +47,7 @@ function parseArgs(argv) {
     size: "1080x1920",
     startTick: null,
     speed: null,
+    camera: null,
     fps: 30,
     crf: 18,
     settle: 1.5,
@@ -61,6 +65,7 @@ function parseArgs(argv) {
     else if (k === "--size") a.size = next();
     else if (k === "--start-tick") a.startTick = Number(next());
     else if (k === "--speed") a.speed = Number(next());
+    else if (k === "--camera") a.camera = next();
     else if (k === "--fps") a.fps = Number(next());
     else if (k === "--crf") a.crf = Number(next());
     else if (k === "--settle") a.settle = Number(next());
@@ -86,6 +91,18 @@ function parseArgs(argv) {
   if (a.format !== "png" && a.format !== "jpeg") throw new Error("--format must be png|jpeg");
   if (a.speed !== null && ![1, 2, 4, 8].includes(a.speed))
     throw new Error("--speed must be one of 1|2|4|8 (replaypanel SPEEDS)");
+  if (a.camera !== null) {
+    const src = a.camera.trim().startsWith("[") ? a.camera : readFileSync(a.camera, "utf8");
+    a.moves = JSON.parse(src);
+    if (!Array.isArray(a.moves)) throw new Error("--camera must be a JSON array of keyframes");
+    a.moves.sort((x, y) => (x.at ?? 0) - (y.at ?? 0));
+    for (const m of a.moves) {
+      if (m.zoom !== undefined && m.zoom < 13)
+        console.warn(`[warn] camera keyframe at t=${m.at ?? 0}s zooms to ${m.zoom} < 13 — baked vehicles will vanish`);
+    }
+  } else {
+    a.moves = [];
+  }
   return a;
 }
 
@@ -291,10 +308,28 @@ try {
   const startHud = await hud();
   const stamps = [];
   const ext = args.format === "png" ? "png" : "jpg";
+  let moveIdx = 0;
   const t0 = Date.now();
   console.log(`[rec] ${args.duration}s @ ${args.width}x${args.height} (${args.format}) …`);
   while (Date.now() - t0 < args.duration * 1000) {
     const t = Date.now() - t0;
+    // Drone camera: keyframes fire as maplibre eases on the map handle the
+    // viz exposes for headless harnesses (main.ts window.__viz). Eases run
+    // on wall-clock rAF, so the timestamped frames sample them correctly.
+    // Keyframe: {at, duration, center?, zoom?, bearing?, pitch?, ease?}
+    // (seconds; ease: "ease" default | "fly" | "jump"). Don't overlap
+    // moves — a new ease interrupts the running one.
+    while (moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0)) {
+      const m = args.moves[moveIdx++];
+      const fn = m.ease === "jump" ? "jumpTo" : m.ease === "fly" ? "flyTo" : "easeTo";
+      const opts = {};
+      for (const k of ["center", "zoom", "bearing", "pitch"]) if (m[k] !== undefined) opts[k] = m[k];
+      if (fn !== "jumpTo") opts.duration = (m.duration ?? 2) * 1000;
+      // Wrapped: map methods return the Map itself, which returnByValue
+      // cannot serialize ("Object reference chain is too long").
+      await evaluate(`(() => { window.__viz.map.${fn}(${JSON.stringify(opts)}); return "ok"; })()`);
+      console.log(`[cam] t=${(t / 1000).toFixed(1)}s ${fn} ${JSON.stringify(opts)}`);
+    }
     const shot = await send("Page.captureScreenshot", {
       format: args.format,
       ...(args.format === "jpeg" ? { quality: 90 } : {}),
