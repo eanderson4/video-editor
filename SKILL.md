@@ -84,6 +84,13 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   Serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
   `--gpu` drops swiftshader for hardware GL (~4× faster capture). CLI:
   `python3 ~/grove/video-editor/vidkit/simcapture.py --url ... --out clip.mp4`.
+- `musicgen` — original music beds + SFX via the ElevenLabs API
+  (`ELEVENLABS_API_KEY`, Creator plan = commercial license for monetized
+  YouTube; decision doc `docs/musicgen.md`). `music(prompt, out, seconds,
+  seed)` forces instrumental; `sfx(text, out, seconds)` ≤22 s. Non-mp3
+  `--out` converts via ffmpeg. CLI:
+  `python3 -m vidkit.musicgen "prompt" --seconds 30 --out bed.wav`
+  (or `sfx "truck horn" --out horn.wav`).
 
 ## Usage entry points (in ~/grove/math-vs-vibes)
 

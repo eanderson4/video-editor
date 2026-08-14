@@ -9,9 +9,10 @@ Modules:
   loudness   normalize finished files to -14 LUFS (gain + true-peak limiter)
   shorts     segmented two-pass vertical shorts render engine
   simcapture MP4 B-roll capture of a traffic-sim baked replay (CDP + ffmpeg)
+  musicgen   original music beds + sound effects via the ElevenLabs API
 
 Import with promo/tools on sys.path:
     sys.path.insert(0, <repo>/promo/tools)
     from vidkit import brand, shorts, ...
 """
-from . import brand, captions, draw, facetrack, ff, loudness, shorts, simcapture  # noqa: F401
+from . import brand, captions, draw, facetrack, ff, loudness, musicgen, shorts, simcapture  # noqa: F401
