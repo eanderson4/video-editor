@@ -59,8 +59,10 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   `simcapture.capture()` wraps it), wall-clock screenshot loop assembled
   as true real-time CFR via concat-demuxer per-frame durations. Uses the
   viz's `?bare=1` for clean footage; `--start-tick` seeks via the hidden
-  replay slider; `--speed 2|4|8` clicks the panel's speed buttons (4×
-  reads as motion at street zooms); `--camera keyframes.json` flies the
+  replay slider; `--speed X` sets replay speed — any value > 0 (presets
+  1|2|4|8 click the panel's buttons; anything else, e.g. 0.25, POSTs the
+  baked ctl stub, which validates only speed > 0 — the panel UI is the
+  only quantized part); `--camera keyframes.json` flies the
   maplibre camera like a drone while recording. Preferred keyframe format
   ({t, center?, zoom?, bearing?, pitch?} in output seconds): one
   continuous monotone-cubic-Hermite spline path sampled per frame —
@@ -73,7 +75,9 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   heavy loads → choppy playback): use `--retime N` — capture N× longer
   at an N×-slower replay speed, compressed ÷N on encode (same motion,
   N× the unique fps; camera keyframes stay in output seconds; effective
-  sim speed = speed × retime). Deep-link `?center=&zoom=13+`
+  sim speed = speed × retime — so `--speed 0.25 --retime 4` gives smooth
+  TRUE-1× motion; sub-1× also widens the viz's lerp buffer, which starves
+  under capture load at 1×+ and stutters the vehicles). Deep-link `?center=&zoom=13+`
   (vehicle render gate) or pass
   `--min-vehicle-zoom N` to defeat the gate for zoomed-out shots (icons
   hold ~4px down to zoom 11; whole-network = ~5-6k vehicles streaming).

@@ -45,7 +45,7 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
     if start_tick is not None:
         cmd += ["--start-tick", str(int(start_tick))]
     if speed is not None:
-        cmd += ["--speed", str(int(speed))]
+        cmd += ["--speed", str(speed)]  # any value > 0; sub-1x (e.g. 0.25) pairs with retime
     if camera is not None:
         cmd += ["--camera",
                 camera if isinstance(camera, str) else json.dumps(camera)]

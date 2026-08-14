@@ -20,7 +20,16 @@
 //
 // Usage:
 //   node simcapture.mjs --url <replay-url> --out clip.mp4
-//     [--duration 10] [--size 1080x1920] [--start-tick N] [--speed 1|2|4|8]
+//     [--duration 10] [--size 1080x1920] [--start-tick N] [--speed X>0]
+//       --speed: presets 1|2|4|8 click the replay panel's buttons; ANY
+//       other positive value (0.25, 0.5, 3, ...) is accepted — the baked
+//       ctl stub validates speed > 0, only the panel UI is quantized.
+//       Sub-1× exists for --retime: the panel has no button below 1×, so
+//       fractional speed is what lets retime smooth WITHOUT speeding up
+//       the sim (speed = wanted_effective / retime). Slower delivery also
+//       widens the viz's lerp-buffer margin (buffer = 1.25 × frame
+//       interval / speed), so vehicle interpolation starves less under
+//       capture load.
 //     [--camera path.json | '[{...}]'] — drone keyframes, two formats:
 //       SPLINE (preferred): [{t, center?, zoom?, bearing?, pitch?}, ...]
 //         (t = output seconds). One continuous camera path: each dimension
@@ -112,8 +121,8 @@ function parseArgs(argv) {
   a.height = Number(m[2]);
   if (a.width % 2 || a.height % 2) throw new Error("--size must be even (yuv420p)");
   if (a.format !== "png" && a.format !== "jpeg") throw new Error("--format must be png|jpeg");
-  if (a.speed !== null && ![1, 2, 4, 8].includes(a.speed))
-    throw new Error("--speed must be one of 1|2|4|8 (replaypanel SPEEDS)");
+  if (a.speed !== null && !(a.speed > 0))
+    throw new Error("--speed must be > 0 (presets 1|2|4|8 click the panel buttons; any other value POSTs the ctl stub directly)");
   if (!(a.retime >= 1)) throw new Error("--retime must be >= 1");
   if (a.camera !== null) {
     const src = a.camera.trim().startsWith("[") ? a.camera : readFileSync(a.camera, "utf8");
@@ -399,12 +408,36 @@ try {
     );
   }
   if (args.speed !== null) {
-    const res = await evaluate(
-      "(() => { const b = [...document.querySelectorAll('#replay .rp-speed')]" +
-        `.find((x) => x.textContent === '${args.speed}\\u00d7');` +
-        " if (!b) return 'no-button'; b.click(); return 'ok'; })()",
-    );
-    if (res !== "ok") throw new Error(`speed ${args.speed}x: ${res}`);
+    if ([1, 2, 4, 8].includes(args.speed)) {
+      const res = await evaluate(
+        "(() => { const b = [...document.querySelectorAll('#replay .rp-speed')]" +
+          `.find((x) => x.textContent === '${args.speed}\\u00d7');` +
+          " if (!b) return 'no-button'; b.click(); return 'ok'; })()",
+      );
+      if (res !== "ok") throw new Error(`speed ${args.speed}x: ${res}`);
+    } else {
+      // Non-preset speed (the sub-1× retime case): the baked ctl stub
+      // accepts any speed > 0, but it lives in closures the page can't
+      // reach — the only road in is the panel's own POST. Clicking the 1×
+      // button builds its {speed: 1} body synchronously inside the click
+      // dispatch, so a stringify wrap swapped in around one click (and
+      // restored in finally) rewrites exactly that body. Downstream this
+      // is the real setSpeed: the frame scheduler slows AND the next 1 s
+      // status poll re-sizes the lerp buffer to the new cadence.
+      const res = await evaluate(
+        "(() => { const b = [...document.querySelectorAll('#replay .rp-speed')]" +
+          ".find((x) => x.textContent === '1\\u00d7');" +
+          " if (!b) return 'no-button';" +
+          " const orig = JSON.stringify; let hit = false;" +
+          " JSON.stringify = function (v, ...rest) {" +
+          "   if (!hit && v && typeof v === 'object' && v.speed === 1 && Object.keys(v).length === 1)" +
+          `     { hit = true; v = { speed: ${args.speed} }; }` +
+          "   return orig.apply(JSON, [v, ...rest]); };" +
+          " try { b.click(); } finally { JSON.stringify = orig; }" +
+          " return hit ? 'ok' : 'no-post'; })()",
+      );
+      if (res !== "ok") throw new Error(`speed ${args.speed}x (ctl stub POST): ${res}`);
+    }
     console.log(`[speed] ${args.speed}x`);
   }
   if (args.startTick !== null) {
@@ -421,6 +454,24 @@ try {
       return h.tick !== null && h.tick >= args.startTick - 5 && h.vehicles > 0 ? h : null;
     });
     console.log(`[seek] landed: ${(await hud()).text.split("\n")[1]}`);
+  }
+  if (args.speed !== null && args.speed < 1) {
+    // Sub-1× stretches the frame cadence (bake stride / speed — 2 s at
+    // 0.25× on a 500 ms stride) and the seek just dropped the lerp buffer,
+    // so give delivery two frames before rolling: proves the fractional
+    // speed took (measured tick rate ≈ speed × ticks/sec) and primes the
+    // interpolation with a bracketing pair.
+    const t0 = { tick: (await hud()).tick, ms: Date.now() };
+    const t1 = await waitFor("frame delivery after seek (sub-1x)", 60_000, async () => {
+      const h = await hud();
+      return h.tick !== null && h.tick > t0.tick ? { tick: h.tick, ms: Date.now() } : null;
+    });
+    const t2 = await waitFor("second frame delivery (sub-1x)", 60_000, async () => {
+      const h = await hud();
+      return h.tick !== null && h.tick > t1.tick ? { tick: h.tick, ms: Date.now() } : null;
+    });
+    const rate = ((t2.tick - t1.tick) / (t2.ms - t1.ms)) * 1000;
+    console.log(`[speed] sub-1x delivery flowing: ~${rate.toFixed(1)} ticks/s wall`);
   }
 
   if (args.settle > 0) await sleep(args.settle * 1000);
