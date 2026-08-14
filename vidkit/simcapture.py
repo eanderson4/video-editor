@@ -26,7 +26,8 @@ _MJS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "simcapture.mjs"
 def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
             speed=None, camera=None, retime=None, min_vehicle_zoom=None,
             fps=30, crf=18, settle=1.5, fmt="png", keep_frames=False,
-            gpu=False, timeout=120):
+            gpu=False, timeout=120, follow=None, follow_zoom=None,
+            highlight=False):
     """Capture `duration` seconds of the replay at `url` into mp4 `out`.
 
     camera: drone keyframes — a JSON file path, or a list of dicts
@@ -37,6 +38,12 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
     encode (screenshot rate caps unique frames; retime multiplies it).
     Pair with a replay speed N× slower than the wanted motion; effective
     sim speed = speed × retime. Camera keyframes stay in output seconds.
+
+    follow: lock the camera onto a real vehicle — a numeric feature id or
+    "cls@lng,lat[,heading]" (cls: car|truck|any). follow_zoom sets the
+    zoom; highlight rings the vehicle. camera keyframes then spline
+    zoom/bearing/pitch and offset=[east_m, north_m] around it (fly-bys),
+    never center. Follow shots want effective 3-4x to read as motion.
     """
     cmd = ["node", _MJS, "--url", url, "--out", out,
            "--duration", str(duration), "--size", f"{size[0]}x{size[1]}",
@@ -57,6 +64,12 @@ def capture(url, out, duration=10.0, size=(1080, 1920), start_tick=None,
         cmd.append("--keep-frames")
     if gpu:
         cmd.append("--gpu")
+    if follow is not None:
+        cmd += ["--follow", str(follow)]
+    if follow_zoom is not None:
+        cmd += ["--follow-zoom", str(follow_zoom)]
+    if highlight:
+        cmd.append("--highlight")
     subprocess.run(cmd, check=True)
     return out
 

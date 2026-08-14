@@ -52,6 +52,19 @@
 //       replay --speed N× SLOWER than the motion you want (effective sim
 //       speed in the output = speed × retime). Camera keyframes stay
 //       authored in OUTPUT seconds — at/duration are scaled internally.
+//     [--follow <id | cls@lng,lat[,heading]>] — lock the camera onto a real
+//       vehicle: a numeric feature id, or pick the nearest cls (car|truck|
+//       any) to lng,lat at roll start, optionally filtered by heading
+//       (north|south|east|west). The camera centers on the vehicle's
+//       lerped position every frame (exp-smoothed, tau 0.35 output-s, so
+//       it trails like a drone). [--follow-zoom N] sets the follow zoom;
+//       [--highlight] draws a white ring riding the vehicle. --camera
+//       combines: keyframes may spline zoom/bearing/pitch AND
+//       `offset: [east_m, north_m]` (meters relative to the vehicle —
+//       sweep from behind to ahead for a fly-by), but never center.
+//       NOTE: at effective 1x a freeway vehicle crosses ~10% of a z16
+//       frame in 14s — follow shots want effective 3-4x (e.g. --speed 0.5
+//       --retime 8) to read as motion.
 //     [--crf 18] [--settle 1.5] [--format png|jpeg] [--keep-frames] [--gpu]
 //
 // Requires: chrome/chromium (env CHROME overrides), ffmpeg (resolution
@@ -85,6 +98,9 @@ function parseArgs(argv) {
     keepFrames: false,
     gpu: false,
     timeout: 120,
+    follow: null,
+    followZoom: null,
+    highlight: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -104,6 +120,9 @@ function parseArgs(argv) {
     else if (k === "--format") a.format = next();
     else if (k === "--keep-frames") a.keepFrames = true;
     else if (k === "--gpu") a.gpu = true;
+    else if (k === "--follow") a.follow = next();
+    else if (k === "--follow-zoom") a.followZoom = Number(next());
+    else if (k === "--highlight") a.highlight = true;
     else if (k === "--timeout") a.timeout = Number(next());
     else throw new Error(`unknown arg: ${k}`);
   }
@@ -124,6 +143,20 @@ function parseArgs(argv) {
   if (a.speed !== null && !(a.speed > 0))
     throw new Error("--speed must be > 0 (presets 1|2|4|8 click the panel buttons; any other value POSTs the ctl stub directly)");
   if (!(a.retime >= 1)) throw new Error("--retime must be >= 1");
+  if (a.follow !== null) {
+    if (/^\d+$/.test(a.follow)) a.followSpec = { id: Number(a.follow) };
+    else {
+      const f = /^(car|truck|any)@(-?[\d.]+),(-?[\d.]+)(?:,(north|south|east|west))?$/.exec(a.follow);
+      if (!f)
+        throw new Error(
+          "--follow must be a vehicle id, or cls@lng,lat[,heading] " +
+            "(cls: car|truck|any; heading: north|south|east|west) — " +
+            "picks the nearest matching vehicle to that point at roll start",
+        );
+      a.followSpec = { cls: { car: 0, truck: 1, any: null }[f[1]], lng: Number(f[2]), lat: Number(f[3]), heading: f[4] ?? null };
+    }
+  }
+  if (a.highlight && a.follow === null) throw new Error("--highlight requires --follow");
   if (a.camera !== null) {
     const src = a.camera.trim().startsWith("[") ? a.camera : readFileSync(a.camera, "utf8");
     a.moves = JSON.parse(src);
@@ -132,6 +165,11 @@ function parseArgs(argv) {
     if (splineCount && splineCount !== a.moves.length)
       throw new Error("--camera: cannot mix spline ({t}) and legacy ({at}) keyframes");
     a.splineCamera = splineCount > 0;
+    if (a.follow !== null) {
+      if (!a.splineCamera) throw new Error("--follow only combines with spline ({t}) camera keyframes");
+      if (a.moves.some((m) => m.center !== undefined))
+        throw new Error("--follow owns the camera center — keyframes may carry offset/zoom/bearing/pitch, not center");
+    }
     a.moves.sort((x, y) => (x.t ?? x.at ?? 0) - (y.t ?? y.at ?? 0));
     for (const m of a.moves) {
       if (m.zoom !== undefined && m.zoom < 13)
@@ -221,6 +259,32 @@ function buildCameraPath(moves, init) {
     bearing: fns.bearing(t),
     pitch: fns.pitch(t),
   });
+}
+
+// buildFollowPath: the --follow variant of the spline path. The followed
+// vehicle owns the camera center; keyframes spline everything AROUND it —
+// zoom/bearing/pitch as usual, plus `offset: [east_m, north_m]` (meters
+// relative to the vehicle) for fly-bys: sweep offset from behind to ahead
+// and the camera overtakes the vehicle in one continuous move.
+function buildFollowPath(moves, init) {
+  const dims = {
+    ox: { get: (m) => m.offset?.[0], init: 0 },
+    oy: { get: (m) => m.offset?.[1], init: 0 },
+    zoom: { get: (m) => m.zoom, init: init.zoom },
+    bearing: { get: (m) => m.bearing, init: init.bearing },
+    pitch: { get: (m) => m.pitch, init: init.pitch },
+  };
+  const fns = {};
+  for (const [name, dim] of Object.entries(dims)) {
+    const pts = [];
+    for (const m of moves) {
+      const v = dim.get(m);
+      if (v !== undefined) pts.push([m.t, v]);
+    }
+    if (!pts.length || pts[0][0] > 0) pts.unshift([0, dim.init]);
+    fns[name] = hermite(pts);
+  }
+  return (t) => ({ ox: fns.ox(t), oy: fns.oy(t), zoom: fns.zoom(t), bearing: fns.bearing(t), pitch: fns.pitch(t) });
 }
 
 // --- binary resolution ------------------------------------------------------
@@ -477,7 +541,7 @@ try {
   if (args.settle > 0) await sleep(args.settle * 1000);
 
   let cameraPath = null;
-  if (args.splineCamera) {
+  if (args.splineCamera && !args.followSpec) {
     const init = JSON.parse(
       await evaluate(
         "(() => { const m = window.__viz.map; const c = m.getCenter();" +
@@ -487,6 +551,64 @@ try {
     );
     cameraPath = buildCameraPath(args.moves, init);
     console.log(`[cam] spline path, ${args.moves.length} keyframes from ${JSON.stringify(init)}`);
+  }
+
+  // --follow: lock onto a real vehicle. The picker scans the vehicles
+  // source (stable feature ids — promoteId "id") for the nearest match to
+  // the requested cls/point/heading; per frame the camera centers on its
+  // CURRENT position (exp-smoothed, so the follow has a hint of drone lag
+  // instead of hard-locking the lerp steps) plus the keyframed offset.
+  let followState = null;
+  if (args.followSpec) {
+    const sp = args.followSpec;
+    const initView = JSON.parse(
+      await evaluate(
+        "(() => { const m = window.__viz.map;" +
+          " return JSON.stringify({zoom: m.getZoom(), bearing: m.getBearing(), pitch: m.getPitch()}); })()",
+      ),
+    );
+    const fp = buildFollowPath(args.moves ?? [], {
+      zoom: args.followZoom ?? initView.zoom,
+      bearing: initView.bearing,
+      pitch: initView.pitch,
+    });
+    const headTest = { north: "Math.sin(a)>0.5", south: "Math.sin(a)<-0.5", east: "Math.cos(a)>0.5", west: "Math.cos(a)<-0.5" };
+    const pickJs =
+      "(() => { const m = window.__viz.map; const seen = new Set();" +
+      " let best = null, bestD = Infinity;" +
+      " for (const f of m.querySourceFeatures('vehicles')) {" +
+      "   const id = Number(f.id ?? f.properties.id); if (seen.has(id)) continue; seen.add(id);" +
+      (sp.id !== undefined
+        ? `   if (id !== ${sp.id}) continue; const c = f.geometry.coordinates;` +
+          "   return JSON.stringify({id, lng: c[0], lat: c[1], cls: f.properties.cls});"
+        : (sp.cls !== null ? `   if (f.properties.cls !== ${sp.cls}) continue;` : "") +
+          (sp.heading !== null ? `   const a = f.properties.angle; if (!(${headTest[sp.heading]})) continue;` : "") +
+          "   const c = f.geometry.coordinates;" +
+          `   const d = (c[0] - ${sp.lng}) ** 2 + ((c[1] - ${sp.lat}) * 1.34) ** 2;` +
+          "   if (d < bestD) { bestD = d; best = {id, lng: c[0], lat: c[1], cls: f.properties.cls}; }") +
+      " } return best ? JSON.stringify(best) : 'none'; })()";
+    const picked = await waitFor(`--follow pick (${args.follow})`, 20_000, async () => {
+      const r = await evaluate(pickJs);
+      return r !== "none" ? JSON.parse(r) : null;
+    });
+    console.log(
+      `[follow] locked on ${picked.cls === 1 ? "truck" : "car"} id=${picked.id} at ` +
+        `${picked.lng.toFixed(5)},${picked.lat.toFixed(5)}` +
+        (args.highlight ? " (highlight ring on)" : ""),
+    );
+    if (args.highlight) {
+      await evaluate(
+        "(() => { const m = window.__viz.map;" +
+          ` m.addSource('__followRing', {type: 'geojson', data: {type: 'Feature', properties: {},` +
+          `  geometry: {type: 'Point', coordinates: [${picked.lng}, ${picked.lat}]}}});` +
+          " m.addLayer({id: '__followRing', type: 'circle', source: '__followRing', paint: {" +
+          "  'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 13, 4, 16, 18, 18, 64]," +
+          "  'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff'," +
+          "  'circle-stroke-width': 3, 'circle-pitch-alignment': 'map'}});" +
+          " return 'ok'; })()",
+      );
+    }
+    followState = { id: picked.id, fp, sx: picked.lng, sy: picked.lat, raw: [picked.lng, picked.lat], lastMs: null, warned: false };
   }
 
   // Capture loop: wall-clock timed. Screenshot latency under swiftshader
@@ -516,13 +638,51 @@ try {
       const s = cameraPath(t / 1000 / args.retime);
       await evaluate(`(() => { window.__viz.map.jumpTo(${JSON.stringify(s)}); return "ok"; })()`);
     }
+    if (followState) {
+      // Read the vehicle's CURRENT lerped position (and drag the ring
+      // onto it), then center = smoothed position + keyframed offset.
+      const r = await evaluate(
+        "(() => { const m = window.__viz.map;" +
+          " for (const f of m.querySourceFeatures('vehicles')) {" +
+          `   if (Number(f.id ?? f.properties.id) !== ${followState.id}) continue;` +
+          "   const c = f.geometry.coordinates;" +
+          (args.highlight
+            ? " m.getSource('__followRing').setData({type: 'Feature', properties: {}," +
+              "  geometry: {type: 'Point', coordinates: c}});"
+            : "") +
+          "   return JSON.stringify(c);" +
+          " } return 'gone'; })()",
+      );
+      if (r !== "gone") followState.raw = JSON.parse(r);
+      else if (!followState.warned) {
+        console.warn(`[follow] vehicle ${followState.id} left the network — holding its last position`);
+        followState.warned = true;
+      }
+      // Exp smoothing, tau in OUTPUT seconds (x retime in wall terms).
+      const dtMs = followState.lastMs === null ? 0 : t - followState.lastMs;
+      followState.lastMs = t;
+      const alpha = 1 - Math.exp(-dtMs / (0.35 * 1000 * args.retime));
+      followState.sx += (followState.raw[0] - followState.sx) * alpha;
+      followState.sy += (followState.raw[1] - followState.sy) * alpha;
+      const s = followState.fp(t / 1000 / args.retime);
+      const jump = {
+        center: [
+          followState.sx + s.ox / (111320 * Math.cos((followState.sy * Math.PI) / 180)),
+          followState.sy + s.oy / 110574,
+        ],
+        zoom: s.zoom,
+        bearing: s.bearing,
+        pitch: s.pitch,
+      };
+      await evaluate(`(() => { window.__viz.map.jumpTo(${JSON.stringify(jump)}); return "ok"; })()`);
+    }
     // Legacy camera: keyframes fire as maplibre eases on the map handle
     // the viz exposes for headless harnesses (main.ts window.__viz). Eases
     // run on wall-clock rAF, so the timestamped frames sample them
     // correctly. Keyframe: {at, duration, center?, zoom?, bearing?,
     // pitch?, ease?} (seconds; ease: "ease" default | "fly" | "jump").
     // Don't overlap moves — a new ease interrupts the running one.
-    while (!cameraPath && moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0) * args.retime) {
+    while (!cameraPath && !followState && moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0) * args.retime) {
       const m = args.moves[moveIdx++];
       const fn = m.ease === "jump" ? "jumpTo" : m.ease === "fly" ? "flyTo" : "easeTo";
       const opts = {};

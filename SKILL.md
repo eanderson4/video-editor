@@ -82,6 +82,12 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   `--min-vehicle-zoom N` to defeat the gate for zoomed-out shots (icons
   hold ~4px down to zoom 11; whole-network = ~5-6k vehicles streaming).
   Serve the bake with `traffic-sim scripts/serve-baked.py` (brotli).
+  `--follow <id|cls@lng,lat[,heading]>` locks the camera onto a real
+  vehicle (nearest car|truck|any to the point, optional heading filter;
+  exp-smoothed drone lag); `--highlight` rings it; `--camera` then
+  splines zoom/bearing/pitch and `offset: [east_m, north_m]` around the
+  vehicle (sweep behind→ahead = fly-by), never center. Follow shots
+  need effective 3-4× (`--speed 0.5 --retime 8`) to read as motion.
   `--gpu` drops swiftshader for hardware GL (~4× faster capture). CLI:
   `python3 ~/grove/video-editor/vidkit/simcapture.py --url ... --out clip.mp4`.
 - `musicgen` — original music beds + SFX via the ElevenLabs API
