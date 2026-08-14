@@ -21,9 +21,21 @@
 // Usage:
 //   node simcapture.mjs --url <replay-url> --out clip.mp4
 //     [--duration 10] [--size 1080x1920] [--start-tick N] [--speed 1|2|4|8]
-//     [--camera path.json | '[{...}]'] — drone keyframes: [{at, duration,
-//       center?, zoom?, bearing?, pitch?, ease?: "ease"|"fly"|"jump"}, ...]
-//       (seconds from record start; fired on window.__viz.map)
+//     [--camera path.json | '[{...}]'] — drone keyframes, two formats:
+//       SPLINE (preferred): [{t, center?, zoom?, bearing?, pitch?}, ...]
+//         (t = output seconds). One continuous camera path: each dimension
+//         is a monotone cubic Hermite spline (Fritsch–Carlson) through its
+//         keyframed values, sampled per captured frame and applied with
+//         jumpTo — C1-continuous velocity through waypoints (no stop-start
+//         between segments), zero overshoot, eased from/to rest at the
+//         path ends. Center interpolates in Mercator space; bearing takes
+//         the shortest way around; a dimension omitted at some keyframes
+//         is splined through the keyframes that do specify it (repeat a
+//         value at two t's to hold). Unspecified dims keep the start view.
+//       LEGACY: [{at, duration, center?, zoom?, bearing?, pitch?,
+//         ease?: "ease"|"fly"|"jump"}, ...] — discrete maplibre eases
+//         fired at wall-clock offsets (each segment decelerates to a stop;
+//         don't overlap). Formats cannot be mixed in one file.
 //     [--retime N] — smoothness: capture N× longer wall-clock, then compress
 //       timestamps ÷N on encode. Screenshot rate caps unique frames (~7 fps
 //       even with --gpu at heavy vehicle loads), so a straight capture plays
@@ -107,15 +119,99 @@ function parseArgs(argv) {
     const src = a.camera.trim().startsWith("[") ? a.camera : readFileSync(a.camera, "utf8");
     a.moves = JSON.parse(src);
     if (!Array.isArray(a.moves)) throw new Error("--camera must be a JSON array of keyframes");
-    a.moves.sort((x, y) => (x.at ?? 0) - (y.at ?? 0));
+    const splineCount = a.moves.filter((m) => m.t !== undefined).length;
+    if (splineCount && splineCount !== a.moves.length)
+      throw new Error("--camera: cannot mix spline ({t}) and legacy ({at}) keyframes");
+    a.splineCamera = splineCount > 0;
+    a.moves.sort((x, y) => (x.t ?? x.at ?? 0) - (y.t ?? y.at ?? 0));
     for (const m of a.moves) {
       if (m.zoom !== undefined && m.zoom < 13)
-        console.warn(`[warn] camera keyframe at t=${m.at ?? 0}s zooms to ${m.zoom} < 13 — baked vehicles will vanish`);
+        console.warn(`[warn] camera keyframe at t=${m.t ?? m.at ?? 0}s zooms to ${m.zoom} < 13 — baked vehicles will vanish`);
     }
   } else {
     a.moves = [];
+    a.splineCamera = false;
   }
   return a;
+}
+
+// --- spline camera ----------------------------------------------------------
+
+// Monotone cubic Hermite interpolant (Fritsch–Carlson tangents, zero
+// velocity at the path ends). Returns v(t); clamps outside [t0, tN].
+// Monotone segments cannot overshoot their keyframes — a camera that
+// "rings" past its target zoom reads as drift, so overshoot-free matters
+// more here than the slightly springier Catmull-Rom look.
+function hermite(points) {
+  if (points.length === 1) return () => points[0][1];
+  const t = points.map((p) => p[0]);
+  const v = points.map((p) => p[1]);
+  const n = points.length;
+  const h = [], d = [];
+  for (let i = 0; i < n - 1; i++) {
+    h.push(t[i + 1] - t[i]);
+    if (h[i] <= 0) throw new Error("camera keyframe times must strictly increase per dimension");
+    d.push((v[i + 1] - v[i]) / h[i]);
+  }
+  const m = new Array(n).fill(0); // zero endpoint tangents = ease from/to rest
+  for (let i = 1; i < n - 1; i++) {
+    if (d[i - 1] * d[i] > 0) {
+      const w1 = 2 * h[i] + h[i - 1];
+      const w2 = h[i] + 2 * h[i - 1];
+      m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
+    }
+  }
+  return (x) => {
+    if (x <= t[0]) return v[0];
+    if (x >= t[n - 1]) return v[n - 1];
+    let i = 0;
+    while (x > t[i + 1]) i++;
+    const s = (x - t[i]) / h[i];
+    const s2 = s * s, s3 = s2 * s;
+    return (
+      (2 * s3 - 3 * s2 + 1) * v[i] + (s3 - 2 * s2 + s) * h[i] * m[i] +
+      (-2 * s3 + 3 * s2) * v[i + 1] + (s3 - s2) * h[i] * m[i + 1]
+    );
+  };
+}
+
+// Center interpolates in Web Mercator so straight paths stay straight on
+// screen regardless of latitude.
+const mercY = (lat) => (1 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / Math.PI) / 2;
+const invMercY = (y) => ((2 * Math.atan(Math.exp(Math.PI * (1 - 2 * y))) - Math.PI / 2) * 180) / Math.PI;
+
+// Build per-dimension splines from spline-format keyframes + the camera
+// state at record start (t=0 fallback so every dimension has an anchor).
+// Returns state(outputSeconds) -> {center, zoom, bearing, pitch}.
+function buildCameraPath(moves, init) {
+  const dims = {
+    x: { get: (m) => (m.center ? m.center[0] / 360 : undefined), init: init.center[0] / 360 },
+    y: { get: (m) => (m.center ? mercY(m.center[1]) : undefined), init: mercY(init.center[1]) },
+    zoom: { get: (m) => m.zoom, init: init.zoom },
+    bearing: { get: (m) => m.bearing, init: init.bearing },
+    pitch: { get: (m) => m.pitch, init: init.pitch },
+  };
+  const fns = {};
+  for (const [name, dim] of Object.entries(dims)) {
+    const pts = [];
+    for (const m of moves) {
+      const val = dim.get(m);
+      if (val !== undefined) pts.push([m.t, val]);
+    }
+    if (!pts.length || pts[0][0] > 0) pts.unshift([0, dim.init]);
+    if (name === "bearing") // unwrap: always take the short way around
+      for (let i = 1; i < pts.length; i++) {
+        while (pts[i][1] - pts[i - 1][1] > 180) pts[i][1] -= 360;
+        while (pts[i][1] - pts[i - 1][1] < -180) pts[i][1] += 360;
+      }
+    fns[name] = hermite(pts);
+  }
+  return (t) => ({
+    center: [fns.x(t) * 360, invMercY(fns.y(t))],
+    zoom: fns.zoom(t),
+    bearing: fns.bearing(t),
+    pitch: fns.pitch(t),
+  });
 }
 
 // --- binary resolution ------------------------------------------------------
@@ -329,6 +425,19 @@ try {
 
   if (args.settle > 0) await sleep(args.settle * 1000);
 
+  let cameraPath = null;
+  if (args.splineCamera) {
+    const init = JSON.parse(
+      await evaluate(
+        "(() => { const m = window.__viz.map; const c = m.getCenter();" +
+          " return JSON.stringify({center: [c.lng, c.lat], zoom: m.getZoom()," +
+          " bearing: m.getBearing(), pitch: m.getPitch()}); })()",
+      ),
+    );
+    cameraPath = buildCameraPath(args.moves, init);
+    console.log(`[cam] spline path, ${args.moves.length} keyframes from ${JSON.stringify(init)}`);
+  }
+
   // Capture loop: wall-clock timed. Screenshot latency under swiftshader
   // is variable, so each frame records the moment its capture was
   // REQUESTED (the compositor grabs the then-current frame); the deltas
@@ -349,13 +458,20 @@ try {
   );
   while (Date.now() - t0 < wallMs) {
     const t = Date.now() - t0;
-    // Drone camera: keyframes fire as maplibre eases on the map handle the
-    // viz exposes for headless harnesses (main.ts window.__viz). Eases run
-    // on wall-clock rAF, so the timestamped frames sample them correctly.
-    // Keyframe: {at, duration, center?, zoom?, bearing?, pitch?, ease?}
-    // (seconds; ease: "ease" default | "fly" | "jump"). Don't overlap
-    // moves — a new ease interrupts the running one.
-    while (moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0) * args.retime) {
+    // Spline camera: the path is a pure function of output time — sample
+    // it at this frame's timestamp and jumpTo. Every captured frame gets
+    // the exactly-right camera regardless of capture rate or retime.
+    if (cameraPath) {
+      const s = cameraPath(t / 1000 / args.retime);
+      await evaluate(`(() => { window.__viz.map.jumpTo(${JSON.stringify(s)}); return "ok"; })()`);
+    }
+    // Legacy camera: keyframes fire as maplibre eases on the map handle
+    // the viz exposes for headless harnesses (main.ts window.__viz). Eases
+    // run on wall-clock rAF, so the timestamped frames sample them
+    // correctly. Keyframe: {at, duration, center?, zoom?, bearing?,
+    // pitch?, ease?} (seconds; ease: "ease" default | "fly" | "jump").
+    // Don't overlap moves — a new ease interrupts the running one.
+    while (!cameraPath && moveIdx < args.moves.length && t / 1000 >= (args.moves[moveIdx].at ?? 0) * args.retime) {
       const m = args.moves[moveIdx++];
       const fn = m.ease === "jump" ? "jumpTo" : m.ease === "fly" ? "flyTo" : "easeTo";
       const opts = {};

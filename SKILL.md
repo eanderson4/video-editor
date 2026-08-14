@@ -61,9 +61,15 @@ verify -> publish, with a spec template): `docs/narrative.md`.
   viz's `?bare=1` for clean footage; `--start-tick` seeks via the hidden
   replay slider; `--speed 2|4|8` clicks the panel's speed buttons (4×
   reads as motion at street zooms); `--camera keyframes.json` flies the
-  maplibre camera like a drone while recording ([{at, duration, center,
-  zoom, bearing, pitch, ease}] on `window.__viz.map`, don't overlap
-  eases). Screenshot rate caps unique frames (~7 fps even with --gpu at
+  maplibre camera like a drone while recording. Preferred keyframe format
+  ({t, center?, zoom?, bearing?, pitch?} in output seconds): one
+  continuous monotone-cubic-Hermite spline path sampled per frame —
+  C1 velocity through waypoints (no stop-start), zero overshoot, eased
+  endpoints, Mercator-space centers, shortest-way bearings; repeat a
+  value at two t's to hold (e.g. lock framing before a push-in). Legacy
+  format ({at, duration, ..., ease}) fires discrete maplibre eases —
+  each segment stops before the next; don't overlap them.
+  Screenshot rate caps unique frames (~7 fps even with --gpu at
   heavy loads → choppy playback): use `--retime N` — capture N× longer
   at an N×-slower replay speed, compressed ÷N on encode (same motion,
   N× the unique fps; camera keyframes stay in output seconds; effective
